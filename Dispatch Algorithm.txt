@@ -1,0 +1,174 @@
+function [simulation_state, matlab_simulation_variables] = MatlabDispatch(simulation_parameters, 
+simulation_state, matlab_simulation_variables)
+buy_from_or_sell_to_grid_if_advantageous = 1;
+ if (buy_from_or_sell_to_grid_if_advantageous == 1)
+ if(simulation_parameters.has_pv && simulation_parameters.has_generator && 
+simulation_parameters.has_battery && simulation_parameters.has_converter && 
+simulation_parameters.has_wind_turbine)
+ simulation_state.pvs(1).power_setpoint = simulation_state.pvs(1).power_available;
+ simulation_state.wind_turbines(1).power_setpoint = 
+simulation_state.wind_turbines(1).power_available;
+ % If there is excess renewable energy
+ if ((simulation_state.pvs(1).power_setpoint + 
+simulation_state.wind_turbines(1).power_setpoint) > simulation_state.ac_bus.load_requested) 
+ % If the batteries aren't fully charged then charge them
+ if (simulation_state.batteries(1).state_of_charge_kwh < 
+simulation_parameters.batteries(1).battery_bank_maximum_absolute_soc)
+ simulation_state.batteries(1).power_setpoint = ((simulation_state.pvs(1).power_setpoint 
++ simulation_state.wind_turbines(1).power_setpoint) - simulation_state.ac_bus.load_requested);
+
+ % If the batteries are fully charged then return power back to the grid
+ else
+ simulation_state.grids(1).grid_purchases = 0;
+ simulation_state.grids(1).grid_sales = ((simulation_state.pvs(1).power_setpoint + 
+simulation_state.wind_turbines(1).power_setpoint) - simulation_state.ac_bus.load_requested);
+ end
+ % If the generated renewable power is insufficient to supply the load 
+ elseif (simulation_state.pvs(1).power_setpoint < simulation_state.ac_bus.load_requested)
+ % If the batteries aren't fully discharged and power price is high then use them to supply 
+the difference 
+ if ((simulation_state.batteries(1).state_of_charge_kwh > 
+0.2*simulation_parameters.batteries(1).battery_bank_maximum_absolute_soc)&& 
+(simulation_state.grids(1).power_price > 0.30))
+ simulation_state.batteries(1).power_setpoint = (simulation_state.pvs(1).power_setpoint 
++ simulation_state.wind_turbines(1).power_setpoint - simulation_state.ac_bus.load_requested);
+ % If batteries are fully discharged
+ else
+ % If the price we need to pay for grid power is 'high' then use the diesel generator to 
+supply difference 
+ if (simulation_state.grids(1).power_price > 0.30)
+ simulation_state.generators(1).power_setpoint = 
+simulation_state.ac_bus.load_requested - (simulation_state.pvs(1).power_available + 
+simulation_state.wind_turbines(1).power_setpoint);
+ simulation_state.grids(1).grid_purchases = 0;
+ simulation_state.grids(1).grid_sales = 0;
+ % If the price we need to pay for grid power is 'low' then use the grid to supply difference 
+ else
+
+ simulation_state.grids(1).grid_purchases = simulation_state.ac_bus.load_requested -
+(simulation_state.pvs(1).power_available+simulation_state.wind_turbines(1).power_setpoint);
+ simulation_state.generators(1).power_setpoint = 0;
+ simulation_state.grids(1).grid_sales = 0;
+ end
+ end
+ % If renewable power generated and load in perfect balance 
+ else
+ simulation_state.generators(1).power_setpoint = 0;
+ simulation_state.batteries(1).power_setpoint = 0;
+ simulation_state.grids(1).grid_purchases = 0;
+ simulation_state.grids(1).grid_sales = 0;
+ end
+ % serve the load
+ simulation_state.ac_bus.load_served = simulation_state.ac_bus.load_requested;
+ simulation_state.primary_loads(1).load_served = simulation_state.ac_bus.load_requested;
+ % serve operating capacity
+ simulation_state.ac_bus.operating_capacity_served = simulation_state.ac_bus.load_served;
+ simulation_state.dc_bus.operating_capacity_served = 0;
+ % set capacity shortage
+
+simulation_state.ac_bus.capacity_shortage=simulation_state.ac_bus.operating_capacity_requested 
+- simulation_state.ac_bus.operating_capacity_served;
+ simulation_state.dc_bus.capacity_shortage=0;
+ % set the unmet load 
+ simulation_state.dc_bus.unmet_load = 0;
+ simulation_state.ac_bus.unmet_load = 0;
+ % set excess electricity
+ simulation_state.ac_bus.excess_electricity = simulation_state.ac_bus.load_served -
+simulation_state.ac_bus.load_requested;
+ simulation_state.dc_bus.excess_electricity = 0;
+ if (simulation_state.current_timestep == 1)
+ save('sim_state.mat');
+ end
+ else 
+ simulation_state.ac_bus.load_served = 0;
+ simulation_state.primary_loads(1).load_served = 0;
+ simulation_state.ac_bus.unmet_load = simulation_state.ac_bus.load_requested;
+ simulation_state.ac_bus.excess_electricity = simulation_state.ac_bus.load_served -
+simulation_state.ac_bus.load_requested;
+ simulation_state.ac_bus.operating_capacity_served = 0;
+ simulation_state.ac_bus.capacity_shortage = 
+simulation_state.ac_bus.operating_capacity_requested -
+simulation_state.ac_bus.operating_capacity_served;
+ simulation_state.dc_bus.load_served = simulation_state.dc_bus.load_requested;
+ simulation_state.dc_bus.unmet_load = 0;
+ simulation_state.dc_bus.excess_electricity = 0;
+ simulation_state.dc_bus.operating_capacity_served = 0;
+ simulation_state.dc_bus.capacity_shortage = 0; 
+ end 
+ else
+ if(simulation_parameters.has_pv && simulation_parameters.has_generator && 
+simulation_parameters.has_battery && simulation_parameters.has_converter)
+ simulation_state.pvs(1).power_setpoint = simulation_state.pvs(1).power_available;
+ % If there is excess renewable energy
+ if (simulation_state.pvs(1).power_setpoint > simulation_state.ac_bus.load_requested) 
+ % If the batteries aren't fully charged then charge them
+ if (simulation_state.batteries(1).state_of_charge_kwh < 
+simulation_parameters.batteries(1).battery_bank_maximum_absolute_soc)
+ simulation_state.batteries(1).power_setpoint = (simulation_state.pvs(1).power_setpoint 
+- simulation_state.ac_bus.load_requested);
+ % If the batteries are fully charged then waste excess energy
+ else
+ simulation_state.grids(1).grid_purchases = 0;
+ simulation_state.grids(1).grid_sales = 0;
+ end
+ % If the generated renewable power is insufficient to supply the load 
+ elseif (simulation_state.pvs(1).power_setpoint < simulation_state.ac_bus.load_requested)
+ % If the batteries aren't fully discharged then use them to supply the difference 
+ if (simulation_state.batteries(1).state_of_charge_kwh > 
+0.2*simulation_parameters.batteries(1).battery_bank_maximum_absolute_soc)
+ simulation_state.batteries(1).power_setpoint = (simulation_state.pvs(1).power_setpoint 
+- simulation_state.ac_bus.load_requested);
+ % If batteries are fully discharged
+ else
+ % Use the diesel generator to supply difference 
+ simulation_state.generators(1).power_setpoint = 
+simulation_state.ac_bus.load_requested - simulation_state.pvs(1).power_available;
+ simulation_state.grids(1).grid_purchases = 0;
+ simulation_state.grids(1).grid_sales = 0;
+ end
+ % If renewable power generated and load in perfect balance 
+ else
+ simulation_state.generators(1).power_setpoint = 0;
+ simulation_state.batteries(1).power_setpoint = 0;
+ simulation_state.grids(1).grid_purchases = 0;
+ simulation_state.grids(1).grid_sales = 0;
+ end
+ % serve the load
+ simulation_state.ac_bus.load_served = simulation_state.ac_bus.load_requested;
+ simulation_state.primary_loads(1).load_served = simulation_state.ac_bus.load_requested;
+ % serve operating capacity
+ simulation_state.ac_bus.operating_capacity_served = simulation_state.ac_bus.load_served;
+ simulation_state.dc_bus.operating_capacity_served = 0;
+ % set capacity shortage
+ 
+simulation_state.ac_bus.capacity_shortage=simulation_state.ac_bus.operating_capacity_requested 
+- simulation_state.ac_bus.operating_capacity_served;
+ simulation_state.dc_bus.capacity_shortage=0;
+ % set the unmet load 
+ simulation_state.dc_bus.unmet_load = 0;
+ simulation_state.ac_bus.unmet_load = 0;
+ % set excess electricity
+ simulation_state.ac_bus.excess_electricity = simulation_state.ac_bus.load_served -
+simulation_state.ac_bus.load_requested;
+ simulation_state.dc_bus.excess_electricity = 0;
+ if (simulation_state.current_timestep == 1)
+ save('sim_state.mat');
+ end
+ else 
+ simulation_state.ac_bus.load_served = 0;
+ simulation_state.primary_loads(1).load_served = 0;
+ simulation_state.ac_bus.unmet_load = simulation_state.ac_bus.load_requested;
+ simulation_state.ac_bus.excess_electricity = simulation_state.ac_bus.load_served -
+simulation_state.ac_bus.load_requested;
+ simulation_state.ac_bus.operating_capacity_served = 0;
+ simulation_state.ac_bus.capacity_shortage = 
+simulation_state.ac_bus.operating_capacity_requested -
+simulation_state.ac_bus.operating_capacity_served;
+ simulation_state.dc_bus.load_served = simulation_state.dc_bus.load_requested;
+ simulation_state.dc_bus.unmet_load = 0;
+ simulation_state.dc_bus.excess_electricity = 0;
+ simulation_state.dc_bus.operating_capacity_served = 0;
+ simulation_state.dc_bus.capacity_shortage = 0; 
+ end
+ end
+end
